@@ -3,6 +3,54 @@ from sample_case import get_sample_case
 from sample_sol import gen_sample_sol_mn, get_solution
 
 '''
+Classes
+'''
+class Bee:
+    def __init__(self, case, name, solution):
+        self.case = case
+        self.name = name
+        self.position = solution
+
+    def move(self):
+        new_position = gen_new_sol_m(self.position)
+        if True:
+            self.position = new_position
+
+
+class Neighbourhood:
+    def __init__(self, center, radius):
+        self.center = center
+        self.radius = radius
+
+    def shrink(self):
+        pass
+
+    def abandon(self):
+        pass
+
+
+class Algorithm:
+    def __init__(self, bees, nb, nrb, stlim, case):
+        self.n = len(case['positions'])
+        self.m = len(case['candidates'])
+
+        self.nb = nb
+        self.nrb = nrb
+        self.stlim = stlim
+        self.case = case
+
+        # Inicjalizacja
+        self.bees = []
+        self.hoods = []
+        for i in range(bees):
+            self.bees.append(gen_sample_sol_mn(m, n))
+
+    def step(self):
+        for bee in self.bees:
+            bee.move
+
+
+'''
 Example
 '''
 n = 6
