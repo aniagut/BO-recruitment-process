@@ -3,15 +3,12 @@ import random
 # 'positions': list of positions ids, 'candidates_skills': [lists of skills for every candidate],
 # 'position_skills': [list od skills needed for every position]}
 def get_solution(case, sol_mn):
-    n = len(case['positions'])
-    m = len(case['candidates'])
     solution = dict()
-    for position in case['positions']:
+    for position_index, position in enumerate(case['positions']):
         solution[position] = []
-    for candidate_idx, candidate in enumerate(case['candidates']):
-        idx = random.randint(0,n-1)
-        solution[case['positions'][idx]].append(candidate)
-        sol_mn[idx][candidate_idx] = 1
+        for candidate_index, candidate in enumerate(case['candidates']):
+            if sol_mn[position_index][candidate_index] == 1:
+                solution[position].append(candidate)
     return solution
 
 def gen_sample_sol_mn(m: int, n: int):
