@@ -2,20 +2,33 @@ import math
 import random
 from sample_case import get_sample_case
 import string
+from enum import Enum
 
 from sample_sol import get_solution
 
 debug = True
+
+
 def print_debug(*text):
     if debug:
         print(*text)
 
+class TYPES(Enum):
+    scout = 0
+    forager = 1
+    elite_forager = 2
+
+
+def get_bee_name():
+    return "".join(random.sample(string.ascii_letters, 5))
+
 class Bee:
-    def __init__(self, case, name):
+    def __init__(self, case, name, type):
         self.cost = None
         self.position = None
         self.case = case
         self.name = name
+        self._type = type
         self.set_random_position()
         self._evaluate()
 
@@ -104,32 +117,54 @@ class Bee:
 
 
 class Neighbourhood:
-    def __init__(self, bee: Bee, radius, ttl):
-        self.center = bee.position
-        self.best_cost = bee.cost
+    def __init__(self, bees: [Bee], radius, ttl):
+        best_bee = min(bees, key=lambda bee: bee.cost)
 
-        self.bees = [bee]
-        self.radius = radius
-        self.ttl = ttl
+        self.center: Bee = best_bee
+        self.cost = best_bee.cost
 
-    def add_bee(self, bee: Bee):
-        self.bees.append(bee)
+        self.bees: [Bee] = bees
+        self.radius: int = radius
+        self.ttl: int = ttl
+        self.max_ttl: int = ttl
 
-    def shrink(self):
+    def search(self):
+        for bee in self.bees:
+            bee.local_search(self.radius)
+        found_better = False
+        for bee in self.bees:
+            if bee.cost < self.cost:
+                # znaleziono lepsze rozwiązanie!
+                found_better = True
+                self.cost = bee.cost
+                self.center = bee
+                self.ttl = self.max_ttl
+        if not found_better:
+            self._shrink()
+
+    def _shrink(self):
         self.ttl -= 1
-        self.radius -= 1
+        if self.radius > 1:
+            self.radius -= 1
 
-    def abandon(self):
+class GlobalNeighbourhood(Neighbourhood):
+    '''
+    Abstrakcyjne sąsiedztwo przypisywane skautom
+    '''
+
+    def __init__(self, bee):
+        super().__init__([bee], math.inf, math.inf)
+
+    def search(self):
         pass
-
 
 class Algorithm:
     def __init__(self,
                  case: dict,
-                 ns: int = 7,
+                 ns: int = 2,
                  ne: int = 1,
                  nre: int = 2,
-                 nb: int = 1,
+                 nb: int = 2,
                  nrb: int = 1,
                  ttl: int = 5,
                  radius: int = 2,
@@ -139,7 +174,7 @@ class Algorithm:
 
         Parameters:
         case (dict): rozpatrywana instancja problemu
-        ns (int): liczba pszczół
+        ns (int): liczba pszczół skautów
         ne (int): liczba elitarnych sąsiedztw
         nre (int): liczba pszczół w każdym elitarnym sąsiedztwie
         nb (int): liczba zwykłych sąsiedztw
@@ -168,14 +203,31 @@ class Algorithm:
 
         # Inicjalizacja
         self.hive: [Bee] = []
-        self.bee_scouts: [Bee] = []
+        self.bee_scouts: [Neighbourhood] = []
         self.elite_hoods: [Neighbourhood] = []
         self.good_hoods: [Neighbourhood] = []
+        for i in range(ne):
+            bees = []
+            for j in range(nre):
+                name = get_bee_name()
+                bees.append(Bee(case, name, TYPES.elite_forager))
+            self.elite_hoods.append(Neighbourhood(bees, self.radius, self.ttl))
+            self.hive += bees
+        for i in range(nb):
+            bees = []
+            for j in range(nrb):
+                name = get_bee_name()
+                bees.append(Bee(case, name, TYPES.elite_forager))
+            self.good_hoods.append(Neighbourhood(bees, self.radius, self.ttl))
+            self.hive += bees
         for i in range(ns):
-            name = "".join(random.sample(string.ascii_letters, 5))
-            self.hive.append(Bee(case, name))
+            name = get_bee_name()
+            new_bee = Bee(case, name, TYPES.scout)
+            global_neighbourhood = GlobalNeighbourhood(new_bee)
+            self.bee_scouts.append(global_neighbourhood)
+            self.hive.append(new_bee)
 
-        print_debug("Pszczoły:" +str([bee.name for bee in self.hive]))
+        print_debug("Pszczoły:" + str([bee.name for bee in self.hive]))
 
     def _validate(self):
         n = len(self.case['positions'])
@@ -183,14 +235,12 @@ class Algorithm:
 
         if self.radius >= m:
             raise ValueError("self.radius >= m")
-        if self.ne * self.nre + self.nb + self.nrb > self.ns:
-            raise ValueError("Za mało pszczół by pokryć wszystkie sąsiedztwa! Potrzeba "+str(self.ne * self.nre + self.nb + self.nrb)+" pszczół!")
-        if self.ne * self.nre + self.nb + self.nrb == self.ns:
-            print_debug("Nie ma wolnych pszczół-skautów!")
 
     def step(self):
         """
         PSZCZOŁY WRÓCIŁY DO ULA I DZIELĄ SIĘ SWOIMI WNIOSKAMI.
+
+        SELEKCJA: najgorsze sąsiedztwa są eliminowane
 
         ne najlepszych pszczół tworzy elitarne sąsiedztwa
         nb kolejnych pszczół tworzy nieelitarne sąsiedztwa
@@ -198,60 +248,35 @@ class Algorithm:
 
         reszta pszczół zostaje skautami i przeszukuje globalną przestrzeń rozwiązań
         """
-        self.hive.sort(key=lambda bee: bee.cost)
+        neighbourhoods_evaluated = [Neighbourhood([Bee(self.case, 'TEST', 'TEST')], self.radius, self.ttl)]
 
-        best_solution, best_score = self.hive[0].position, self.hive[0].cost
+        best_solution, best_score = neighbourhoods_evaluated[0].center.position, neighbourhoods_evaluated[0].cost
         if best_score < self.best_score:
-            print_debug("Nowy najlepszy wynik",self.hive[0].cost,"znalazła pszczoła",self.hive[0].name)
+            print_debug("Nowy najlepszy wynik", neighbourhoods_evaluated[0].cost)
             self.best_solution = best_solution
             self.best_score = best_score
 
-        # 1. Stwórz nowe sąsiedztwa
 
-        for i in range(self.ne):
-            self.elite_hoods.append(Neighbourhood(self.hive[i], self.radius, self.ttl))
-
-        for i in range(self.nb):
-            self.good_hoods.append(Neighbourhood(self.hive[i+self.ne], self.radius, self.ttl))
-
-        # rekrutuj TODO
-
-        self.bee_scouts = self.hive[self.ne+self.nb:]
+        # eliminuj i rekrutuj TODO
 
 
         # 2. Lokalne poszukiwania
         # TODO zaawansowa kontrola sąsiedztwa (na ten moment pszczoły są blokowane, nie zmienia się radius, etc.)
         for hood in self.elite_hoods:
-            while hood.ttl > 0:
-                improved = False
-                for bee in hood.bees:
-                    result = bee.local_search(hood.radius)
-                    if result and bee.cost < hood.best_cost:
-                        improved = True
-                        hood.best_cost = bee.cost
-                if not improved:
-                    hood.ttl -= 1
+            hood.search()
+            if hood.ttl < 0:
+                pass #abandon
 
         for hood in self.good_hoods:
-            while hood.ttl > 0:
-                improved = False
-                for bee in hood.bees:
-                    result = bee.local_search(hood.radius)
-                    if result and bee.cost < hood.best_cost:
-                        improved = True
-                        hood.best_cost = bee.cost
-                if not improved:
-                    hood.ttl -= 1
+            hood.search()
+            if hood.ttl < 0:
+                pass #abandon
 
         # 3. Zaktualizuj skautów
-        for bee in self.bee_scouts:
-            bee.global_search()
+        for hood in self.bee_scouts:
+            hood.search()
 
         # 4. Wróć do ula...
-        self.bee_scouts = []
-        self.good_hoods = []
-        self.elite_hoods = []
-
 
 '''
 Example
