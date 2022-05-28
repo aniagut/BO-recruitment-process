@@ -13,6 +13,7 @@ def print_debug(*text):
     if debug:
         print(*text)
 
+
 class TYPES(Enum):
     scout = 0
     forager = 1
@@ -21,6 +22,7 @@ class TYPES(Enum):
 
 def get_bee_name():
     return "".join(random.sample(string.ascii_letters, 5))
+
 
 class Bee:
     def __init__(self, case, name, type):
@@ -143,20 +145,10 @@ class Neighbourhood:
             self._shrink()
 
     def _shrink(self):
-        self.ttl -= 1
+        self.ttl = max(int(0.8 * self.ttl), 1)
         if self.radius > 1:
             self.radius -= 1
 
-class GlobalNeighbourhood(Neighbourhood):
-    '''
-    Abstrakcyjne sąsiedztwo przypisywane skautom
-    '''
-
-    def __init__(self, bee):
-        super().__init__([bee], math.inf, math.inf)
-
-    def search(self):
-        pass
 
 class Algorithm:
     def __init__(self,
@@ -166,9 +158,8 @@ class Algorithm:
                  nre: int = 2,
                  nb: int = 2,
                  nrb: int = 1,
-                 ttl: int = 5,
-                 radius: int = 2,
-                 shrink_factor: int = 1,
+                 ttl: int = 4,
+                 radius: int = 10,
                  iterations: int = 100):
         """Inicjalizacja algorytmu pszczelego.
 
@@ -181,7 +172,6 @@ class Algorithm:
         nrb (int): liczba pszczół w każdym zwykłych sąsiedztwie
         ttl (int): czas życia niewydajnego sąsiedztwa
         radius (int): domyślny początkowy promień sąsiedztwa, radius < m
-        shrink_factor (int): o ile zmniejsza się sąsiedztwo
         iterations (int): po ilu krokach algorytm się zatrzymuje
        """
         self.case = case
@@ -193,7 +183,6 @@ class Algorithm:
         self.nrb = nrb
         self.ttl = ttl
         self.radius = radius
-        self.shrink_factor = shrink_factor
         self.iterations = iterations
 
         self._validate()
@@ -203,7 +192,7 @@ class Algorithm:
 
         # Inicjalizacja
         self.hive: [Bee] = []
-        self.bee_scouts: [Neighbourhood] = []
+        self.bee_scouts: [Bee] = []
         self.elite_hoods: [Neighbourhood] = []
         self.good_hoods: [Neighbourhood] = []
         for i in range(ne):
@@ -223,11 +212,10 @@ class Algorithm:
         for i in range(ns):
             name = get_bee_name()
             new_bee = Bee(case, name, TYPES.scout)
-            global_neighbourhood = GlobalNeighbourhood(new_bee)
-            self.bee_scouts.append(global_neighbourhood)
+            self.bee_scouts.append(new_bee)
             self.hive.append(new_bee)
 
-        print_debug("Pszczoły:" + str([bee.name for bee in self.hive]))
+        print_debug("Pszczoły: " + str([bee.name for bee in self.hive]))
 
     def _validate(self):
         n = len(self.case['positions'])
@@ -240,57 +228,88 @@ class Algorithm:
         """
         PSZCZOŁY WRÓCIŁY DO ULA I DZIELĄ SIĘ SWOIMI WNIOSKAMI.
 
-        SELEKCJA: najgorsze sąsiedztwa są eliminowane
-
-        ne najlepszych pszczół tworzy elitarne sąsiedztwa
-        nb kolejnych pszczół tworzy nieelitarne sąsiedztwa
-        pszczoły rekrutują pomocników i razem z nimi wylatują w przydzielone miejsca
-
-        reszta pszczół zostaje skautami i przeszukuje globalną przestrzeń rozwiązań
+        SELEKCJA: najgorsze sąsiedztwa są eliminowane, na ich miejsce skauci tworzą nowe sąsiedztwa
         """
-        neighbourhoods_evaluated = [Neighbourhood([Bee(self.case, 'TEST', 'TEST')], self.radius, self.ttl)]
+        all_neighbourhoods = self.elite_hoods + self.good_hoods + [Neighbourhood([bee], self.radius, self.ttl) for bee in self.bee_scouts]
 
-        best_solution, best_score = neighbourhoods_evaluated[0].center.position, neighbourhoods_evaluated[0].cost
+        best_solution, best_score = all_neighbourhoods[0].center.position, all_neighbourhoods[0].cost
         if best_score < self.best_score:
-            print_debug("Nowy najlepszy wynik", neighbourhoods_evaluated[0].cost)
+            print_debug("Nowy najlepszy wynik", all_neighbourhoods[0].cost, 'Znaleziony przez pszczoły:', all_neighbourhoods[0].bees)
             self.best_solution = best_solution
             self.best_score = best_score
 
+        self.elite_hoods = all_neighbourhoods[:self.ne]
+        self.good_hoods = all_neighbourhoods[self.ne: (self.ne + self.nb)]
+        scout_hoods = [neighbourhood.bees for neighbourhood in all_neighbourhoods[(self.ne + self.nb):]]
+        self.bee_scouts = []
+        for bees in scout_hoods:
+            self.bee_scouts += bees
 
-        # eliminuj i rekrutuj TODO
-
-
-        # 2. Lokalne poszukiwania
-        # TODO zaawansowa kontrola sąsiedztwa (na ten moment pszczoły są blokowane, nie zmienia się radius, etc.)
         for hood in self.elite_hoods:
-            hood.search()
-            if hood.ttl < 0:
-                pass #abandon
+            if len(hood.bees) > self.nre:
+                self.bee_scouts += hood.bees[self.nre:]
+                hood.bees = hood.bees[:self.nre]
 
         for hood in self.good_hoods:
+            if len(hood.bees) > self.nrb:
+                self.bee_scouts += hood.bees[self.nrb:]
+                hood.bees = hood.bees[:self.nrb]
+
+        for hood in self.elite_hoods:
+            index = self.nre - len(hood.bees)
+            if len(hood.bees) < self.nre:
+                hood.bees += self.bee_scouts[:index]
+                self.bee_scouts = self.bee_scouts[index:]
+
+        for hood in self.good_hoods:
+            index = self.nrb - len(hood.bees)
+            if len(hood.bees) < self.nrb:
+                hood.bees += self.bee_scouts[:index]
+                self.bee_scouts = self.bee_scouts[index:]
+
+        # Pszczoły zostały rozdzielone wedle parametrów
+        assert len(self.bee_scouts) == self.ns
+        assert len(self.elite_hoods) == self.ne
+        assert len(self.good_hoods) == self.nb
+
+        # 1. Lokalne poszukiwania
+        for index, hood in enumerate(self.elite_hoods):
             hood.search()
             if hood.ttl < 0:
-                pass #abandon
+                # porzuć
+                deleted_neighbourhood = self.elite_hoods.pop(index)
+                self.bee_scouts += deleted_neighbourhood.bees
 
-        # 3. Zaktualizuj skautów
-        for hood in self.bee_scouts:
+        for index, hood in enumerate(self.good_hoods):
             hood.search()
+            if hood.ttl < 0:
+                # porzuć
+                deleted_neighbourhood = self.good_hoods.pop(index)
+                self.bee_scouts += deleted_neighbourhood.bees
 
-        # 4. Wróć do ula...
+        # 2. Globalne poszukiwania
+        for bee in self.bee_scouts:
+            bee.global_search()
+
+        # Całkowita liczba pszczół pozostaje stała
+        assert len(self.bee_scouts) + len(self.elite_hoods)*self.nre + len(self.good_hoods)*self.nrb == len(self.hive)
+
+        # 3. Wróć do ula...
+
 
 '''
 Example
 '''
-random.seed(796)
+random.seed(23)
 
-n = 12
-m = 6
+n = 30
+m = 10
 sample_case = get_sample_case(4, n, m)
 print(sample_case)
 
-Algo = Algorithm(sample_case)
+Algo = Algorithm(sample_case, radius=7)
 
-for i in range(1000):
+for i in range(66):
     Algo.step()
 
 print(get_solution(Algo.case, Algo.best_solution))
