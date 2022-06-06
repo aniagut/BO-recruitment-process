@@ -3,7 +3,7 @@ import random
 from sample_case import get_sample_case
 import string
 from enum import Enum
-
+from cost_calculator import calculate_cost
 from sample_sol import get_solution
 
 debug = True
@@ -308,8 +308,10 @@ sample_case = get_sample_case(4, n, m)
 print(sample_case)
 
 Algo = Algorithm(sample_case, radius=7)
-
+Algo.step()
+print(calculate_cost(Algo.case, Algo.best_solution))
 for i in range(66):
     Algo.step()
 
 print(get_solution(Algo.case, Algo.best_solution))
+print(calculate_cost(Algo.case, Algo.best_solution))
