@@ -72,4 +72,3 @@ def get_sample_case(k: int, m: int, n: int):
     solution['position_skills'] = positions_skills
 
     return solution
-

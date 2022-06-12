@@ -300,7 +300,7 @@ class Algorithm:
 '''
 Example
 '''
-random.seed(23)
+random.seed(23+1)
 
 n = 30
 m = 10
